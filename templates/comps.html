@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}New Construction Comps{% endblock %}
+
+{% block content %}
+<div class="search-header">
+    <h1>New Construction Comparables</h1>
+    <p>Recently sold new construction in the Oak Brook area</p>
+</div>
+
+<div class="search-controls">
+    <div class="control-group">
+        <label for="min-year">Built After</label>
+        <select id="min-year" onchange="loadComps()">
+            <option value="2020">2020</option>
+            <option value="2018">2018</option>
+            <option value="2015" selected>2015</option>
+            <option value="2010">2010</option>
+        </select>
+    </div>
+</div>
+
+<div class="comps-summary" id="comps-summary">
+    <!-- Summary stats will be loaded here -->
+</div>
+
+<div class="results-header">
+    <span id="results-count">Loading...</span>
+</div>
+
+<div class="property-grid" id="property-grid">
+    <!-- Properties will be loaded here -->
+</div>
+
+<div class="pagination" id="pagination"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalResults = 0;
+let allComps = [];
+
+async function loadComps(page = 1) {
+    currentPage = page;
+    const minYear = document.getElementById('min-year').value;
+    const grid = document.getElementById('property-grid');
+    const resultsCount = document.getElementById('results-count');
+
+    grid.innerHTML = '<div class="loading">Loading new construction comps...</div>';
+
+    try {
+        const response = await fetch(`/api/search/new-construction?min_year=${minYear}&page=${page}`);
+        const data = await response.json();
+
+        if (data.success) {
+            totalResults = data.totalCount;
+            allComps = data.results;
+            resultsCount.textContent = `${totalResults} new construction sales found`;
+            renderSummary(data.results);
+            renderComps(data.results);
+            renderPagination();
+        } else {
+            grid.innerHTML = '<div class="error">Error loading comps</div>';
+        }
+    } catch (error) {
+        grid.innerHTML = '<div class="error">Error loading comps</div>';
+        console.error(error);
+    }
+}
+
+function renderSummary(comps) {
+    const summary = document.getElementById('comps-summary');
+
+    // Calculate stats
+    const withData = comps.filter(c => c.livingArea > 0 && c.unformattedPrice > 0);
+
+    const prices = withData.map(c => c.unformattedPrice);
+    const sizes = withData.map(c => c.livingArea);
+    const pricesPerSqft = withData.map(c => c.unformattedPrice / c.livingArea);
+
+    const avgPrice = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+    const avgSize = sizes.length ? sizes.reduce((a, b) => a + b, 0) / sizes.length : 0;
+    const avgPricePerSqft = pricesPerSqft.length ? pricesPerSqft.reduce((a, b) => a + b, 0) / pricesPerSqft.length : 0;
+
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const minSize = Math.min(...sizes);
+    const maxSize = Math.max(...sizes);
+
+    summary.innerHTML = `
+        <div class="summary-stats">
+            <div class="stat">
+                <span class="stat-value">$${Math.round(avgPricePerSqft)}</span>
+                <span class="stat-label">Avg $/sqft</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">$${Math.round(avgPrice / 1000)}K</span>
+                <span class="stat-label">Avg Sale Price</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">${Math.round(avgSize).toLocaleString()}</span>
+                <span class="stat-label">Avg Sqft</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">$${Math.round(minPrice / 1000)}K - $${Math.round(maxPrice / 1000)}K</span>
+                <span class="stat-label">Price Range</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value">${minSize.toLocaleString()} - ${maxSize.toLocaleString()}</span>
+                <span class="stat-label">Size Range (sqft)</span>
+            </div>
+        </div>
+    `;
+}
+
+function renderComps(comps) {
+    const grid = document.getElementById('property-grid');
+
+    if (!comps || comps.length === 0) {
+        grid.innerHTML = '<div class="no-results">No new construction comps found</div>';
+        return;
+    }
+
+    grid.innerHTML = comps.map(prop => {
+        const address = prop.address || {};
+        const pricePerSqft = prop.livingArea > 0 ? Math.round(prop.unformattedPrice / prop.livingArea) : 0;
+        const lotSize = prop.lotAreaUnit === 'acres'
+            ? `${prop.lotAreaValue?.toFixed(2)} acres`
+            : `${Math.round(prop.lotAreaValue || 0).toLocaleString()} sqft`;
+
+        return `
+            <div class="property-card sold">
+                <div class="property-image">
+                    <img src="${prop.imgSrc || '/static/img/no-image.png'}" alt="${address.street}">
+                    <div class="property-status sold">SOLD</div>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">$${prop.unformattedPrice?.toLocaleString() || 'N/A'}</div>
+                    <div class="property-price-sqft">$${pricePerSqft}/sqft</div>
+                    <div class="property-address">
+                        ${address.street || 'Address unavailable'}<br>
+                        ${address.city || ''}, ${address.state || ''} ${address.zipcode || ''}
+                    </div>
+                    <div class="property-details">
+                        <span>${prop.beds || '?'} bd</span>
+                        <span>${prop.baths || '?'} ba</span>
+                        <span>${(prop.livingArea || 0).toLocaleString()} sqft</span>
+                    </div>
+                    <div class="property-lot">
+                        <strong>Lot:</strong> ${lotSize}
+                    </div>
+                </div>
+                <div class="property-actions">
+                    <a href="${prop.detailUrl}" target="_blank" class="btn btn-link">View on Zillow</a>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderPagination() {
+    const pagination = document.getElementById('pagination');
+    const totalPages = Math.ceil(totalResults / 40);
+
+    let html = '';
+    if (currentPage > 1) {
+        html += `<button onclick="loadComps(${currentPage - 1})" class="btn">← Prev</button>`;
+    }
+    html += `<span class="page-info">Page ${currentPage} of ${totalPages}</span>`;
+    if (currentPage < totalPages) {
+        html += `<button onclick="loadComps(${currentPage + 1})" class="btn">Next →</button>`;
+    }
+    pagination.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadSelected();
+    loadComps();
+});
+</script>
+{% endblock %}

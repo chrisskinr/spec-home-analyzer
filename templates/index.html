@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}Property Search{% endblock %}
+
+{% block content %}
+<div class="search-header">
+    <h1>Find Teardown Candidates</h1>
+    <p>Search for properties in Oak Brook area that could be potential spec home opportunities</p>
+</div>
+
+<div class="search-controls">
+    <div class="control-group">
+        <label for="city-filter">City</label>
+        <select id="city-filter" onchange="searchProperties()">
+            <option value="">All Cities</option>
+            <option value="Oak Brook">Oak Brook</option>
+            <option value="Hinsdale">Hinsdale</option>
+            <option value="Clarendon Hills">Clarendon Hills</option>
+            <option value="Western Springs">Western Springs</option>
+            <option value="La Grange">La Grange</option>
+            <option value="Burr Ridge">Burr Ridge</option>
+            <option value="Downers Grove">Downers Grove</option>
+            <option value="Elmhurst">Elmhurst</option>
+            <option value="Westmont">Westmont</option>
+            <option value="Lombard">Lombard</option>
+            <option value="Villa Park">Villa Park</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <label for="max-price">Max Price</label>
+        <select id="max-price" onchange="searchProperties()">
+            <option value="500000">Under $500K</option>
+            <option value="750000">Under $750K</option>
+            <option value="1000000" selected>Under $1M</option>
+            <option value="1500000">Under $1.5M</option>
+            <option value="2000000">Under $2M</option>
+            <option value="5000000">Under $5M</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <label for="sort-by">Sort By</label>
+        <select id="sort-by" onchange="sortProperties()">
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+            <option value="lot-desc">Lot Size: Largest</option>
+            <option value="days-desc">Days on Market: Most</option>
+            <option value="days-asc">Days on Market: Newest</option>
+        </select>
+    </div>
+    <div class="control-group">
+        <button onclick="searchProperties()" class="btn btn-primary">Search</button>
+    </div>
+</div>
+
+<div class="results-header">
+    <span id="results-count">Loading...</span>
+</div>
+
+<div class="property-grid" id="property-grid">
+    <!-- Properties will be loaded here -->
+</div>
+
+<div class="load-more" id="load-more">
+    <div class="loading-more" id="loading-more" style="display: none;">Loading more properties...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalResults = 0;
+let allProperties = [];
+let isLoading = false;
+let hasMorePages = true;
+
+async function searchProperties(page = 1, append = false) {
+    if (isLoading) return;
+
+    currentPage = page;
+    isLoading = true;
+
+    const maxPrice = document.getElementById('max-price').value;
+    const cityFilter = document.getElementById('city-filter').value;
+    const grid = document.getElementById('property-grid');
+    const resultsCount = document.getElementById('results-count');
+    const loadingMore = document.getElementById('loading-more');
+
+    if (!append) {
+        grid.innerHTML = '<div class="loading">Loading properties...</div>';
+        allProperties = [];
+    } else {
+        loadingMore.style.display = 'block';
+    }
+
+    try {
+        let url = `/api/search/teardowns?max_price=${maxPrice}&page=${page}`;
+        if (cityFilter) {
+            url += `&city=${encodeURIComponent(cityFilter)}`;
+        }
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.success) {
+            // Filter: single family only, and exact city match if selected
+            let filtered = data.results.filter(p => {
+                if (p.homeType !== 'SINGLE_FAMILY') return false;
+                if (cityFilter && p.address?.city !== cityFilter) return false;
+                return true;
+            });
+
+            if (append) {
+                allProperties = [...allProperties, ...filtered];
+            } else {
+                allProperties = filtered;
+            }
+
+            // Check if there are more pages
+            const totalPages = Math.ceil(data.totalCount / 40);
+            hasMorePages = currentPage < totalPages;
+
+            totalResults = allProperties.length;
+            resultsCount.textContent = `${totalResults} single-family homes${cityFilter ? ' in ' + cityFilter : ''} (scroll for more)`;
+
+            sortAndRender();
+        } else {
+            if (!append) {
+                grid.innerHTML = '<div class="error">Error loading properties</div>';
+            }
+        }
+    } catch (error) {
+        if (!append) {
+            grid.innerHTML = '<div class="error">Error loading properties</div>';
+        }
+        console.error(error);
+    } finally {
+        isLoading = false;
+        loadingMore.style.display = 'none';
+    }
+}
+
+function sortAndRender() {
+    const sortBy = document.getElementById('sort-by').value;
+    let sorted = [...allProperties];
+
+    switch(sortBy) {
+        case 'price-asc':
+            sorted.sort((a, b) => (a.unformattedPrice || 0) - (b.unformattedPrice || 0));
+            break;
+        case 'price-desc':
+            sorted.sort((a, b) => (b.unformattedPrice || 0) - (a.unformattedPrice || 0));
+            break;
+        case 'lot-desc':
+            sorted.sort((a, b) => {
+                const aLot = a.lotAreaUnit === 'acres' ? (a.lotAreaValue || 0) * 43560 : (a.lotAreaValue || 0);
+                const bLot = b.lotAreaUnit === 'acres' ? (b.lotAreaValue || 0) * 43560 : (b.lotAreaValue || 0);
+                return bLot - aLot;
+            });
+            break;
+        case 'days-desc':
+            sorted.sort((a, b) => (b.daysOnZillow || 0) - (a.daysOnZillow || 0));
+            break;
+        case 'days-asc':
+            sorted.sort((a, b) => (a.daysOnZillow || 0) - (b.daysOnZillow || 0));
+            break;
+    }
+
+    renderProperties(sorted);
+}
+
+function sortProperties() {
+    sortAndRender();
+}
+
+// Infinite scroll
+function setupInfiniteScroll() {
+    window.addEventListener('scroll', () => {
+        if (isLoading || !hasMorePages) return;
+
+        const scrollY = window.scrollY;
+        const windowHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+
+        // Load more when 200px from bottom
+        if (scrollY + windowHeight >= docHeight - 200) {
+            searchProperties(currentPage + 1, true);
+        }
+    });
+}
+
+function renderProperties(properties) {
+    const grid = document.getElementById('property-grid');
+
+    if (!properties || properties.length === 0) {
+        grid.innerHTML = '<div class="no-results">No properties found</div>';
+        return;
+    }
+
+    grid.innerHTML = properties.map(prop => {
+        const address = prop.address || {};
+        const lotSize = prop.lotAreaUnit === 'acres'
+            ? `${prop.lotAreaValue?.toFixed(2)} acres`
+            : `${Math.round(prop.lotAreaValue || 0).toLocaleString()} sqft`;
+
+        return `
+            <div class="property-card" data-id="${prop.id}">
+                <div class="property-image">
+                    <img src="${prop.imgSrc || '/static/img/no-image.png'}" alt="${address.street}">
+                    <div class="property-status">${prop.statusText || 'Active'}</div>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">${prop.price || '$' + (prop.unformattedPrice?.toLocaleString() || 'N/A')}</div>
+                    <div class="property-address">
+                        ${address.street || 'Address unavailable'}<br>
+                        ${address.city || ''}, ${address.state || ''} ${address.zipcode || ''}
+                    </div>
+                    <div class="property-details">
+                        <span>${prop.beds || '?'} bd</span>
+                        <span>${prop.baths || '?'} ba</span>
+                        <span>${(prop.livingArea || 0).toLocaleString()} sqft</span>
+                    </div>
+                    <div class="property-lot">
+                        <strong>Lot:</strong> ${lotSize}
+                    </div>
+                    <div class="property-days">
+                        ${prop.daysOnZillow || 0} days on market
+                    </div>
+                </div>
+                <div class="property-actions">
+                    <button onclick='selectProperty(${JSON.stringify(prop).replace(/'/g, "\\'")})' class="btn btn-select">
+                        + Select
+                    </button>
+                    <a href="${prop.detailUrl}" target="_blank" class="btn btn-link">View on Zillow</a>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+
+// Load properties on page load
+document.addEventListener('DOMContentLoaded', () => {
+    searchProperties();
+    loadSelected();
+    setupInfiniteScroll();
+});
+</script>
+{% endblock %}

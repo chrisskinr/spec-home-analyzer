@@ -1,0 +1,3 @@
+([('SpecHomeAnalyzer',
+   '/Users/christopherskinner/PROJECTS/Ethos_Operations/08_APPLICATIONS/spec_home_analyzer/dist/SpecHomeAnalyzer',
+   'EXECUTABLE')],)

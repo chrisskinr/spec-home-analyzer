@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Analyze Properties{% endblock %}
+
+{% block content %}
+<div class="search-header">
+    <h1>Property Analysis</h1>
+    <p>Select a property to view analysis and comparable sales</p>
+</div>
+
+<div id="no-selection" class="no-selection">
+    <h2>No Properties Selected</h2>
+    <p>Go to <a href="/">Search</a> and select properties to analyze.</p>
+</div>
+
+<div id="analyze-layout" class="analyze-layout" style="display: none;">
+    <!-- Left: Analysis Details -->
+    <div class="analyze-main" id="analyze-main">
+        <div id="analysis-detail">
+            <div class="loading">Loading analysis...</div>
+        </div>
+    </div>
+    <div class="resize-handle" id="resize-right"></div>
+
+    <!-- Right: Market Comps -->
+    <div class="analyze-right" id="analyze-right">
+        <h3>Sales in Area</h3>
+        <div id="comps-list">
+            <div class="loading">Loading comps...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let analysisData = {};
+let activePropertyId = null;
+
+async function loadAnalyzePage() {
+    const selected = await getSelected();
+
+    if (selected.length === 0) {
+        document.getElementById('no-selection').style.display = 'block';
+        document.getElementById('analyze-layout').style.display = 'none';
+        return;
+    }
+
+    document.getElementById('no-selection').style.display = 'none';
+    document.getElementById('analyze-layout').style.display = 'flex';
+
+    // Load first selected property
+    const property = selected[0];
+    activePropertyId = property.id;
+    loadAnalysis(property);
+    loadComps(property);
+}
+
+async function loadAnalysis(property) {
+    const container = document.getElementById('analysis-detail');
+    container.innerHTML = '<div class="loading">Analyzing property...</div>';
+
+    try {
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ property: property })
+        });
+        const analysis = await response.json();
+        renderAnalysis(analysis);
+    } catch (error) {
+        container.innerHTML = '<div class="error">Error analyzing property</div>';
+        console.error(error);
+    }
+}
+
+function renderAnalysis(analysis) {
+    const container = document.getElementById('analysis-detail');
+    const prop = analysis.property;
+    const addr = prop.address || {};
+
+    const profitClass = analysis.gross_profit_potential > 500000 ? 'profit-high' :
+                        analysis.gross_profit_potential > 200000 ? 'profit-medium' : 'profit-low';
+
+    const lotSize = prop.lotAreaUnit === 'acres'
+        ? `${prop.lotAreaValue?.toFixed(2)} acres`
+        : `${Math.round(prop.lotAreaValue || 0).toLocaleString()} sqft`;
+
+    container.innerHTML = `
+        <div class="analysis-detail-card">
+            <div class="analysis-detail-header">
+                <img src="${prop.imgSrc}" alt="${addr.street}">
+                <div class="analysis-detail-title">
+                    <h2>${addr.street}</h2>
+                    <p>${addr.city}, ${addr.state} ${addr.zipcode}</p>
+                    <a href="${prop.detailUrl}" target="_blank" class="btn btn-link">View on Zillow →</a>
+                </div>
+            </div>
+
+            <div class="analysis-sections">
+                <div class="analysis-section-card">
+                    <h4>Current Property</h4>
+                    <div class="stat-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Asking Price</span>
+                            <span class="stat-value">$${analysis.asking_price?.toLocaleString()}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Lot Size</span>
+                            <span class="stat-value">${lotSize}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Beds / Baths</span>
+                            <span class="stat-value">${prop.beds} bd / ${prop.baths} ba</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Current Size</span>
+                            <span class="stat-value">${(prop.livingArea || 0).toLocaleString()} sqft</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Days on Market</span>
+                            <span class="stat-value">${prop.daysOnZillow || 0}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analysis-section-card">
+                    <h4>New Build Potential</h4>
+                    <div class="stat-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Target Build Size</span>
+                            <span class="stat-value">${analysis.target_build_size?.toLocaleString()} sqft</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Market $/sqft</span>
+                            <span class="stat-value">$${analysis.avg_nc_price_per_sqft?.toLocaleString()}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Target Sale Price</span>
+                            <span class="stat-value highlight">$${analysis.target_sale_price?.toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="analysis-section-card ${profitClass}">
+                    <h4>Gross Profit Potential</h4>
+                    <div class="profit-display">
+                        <span class="profit-amount">$${analysis.gross_profit_potential?.toLocaleString()}</span>
+                        <span class="profit-note">Before construction, closing & holding costs</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function loadComps(property) {
+    const container = document.getElementById('comps-list');
+    const city = property.address?.city || '';
+
+    if (!property.latLong || !property.latLong.latitude) {
+        container.innerHTML = '<div class="no-comps">Location data not available</div>';
+        return;
+    }
+
+    container.innerHTML = '<div class="loading">Loading sales in ' + city + '...</div>';
+
+    try {
+        const lat = property.latLong.latitude;
+        const lng = property.latLong.longitude;
+        const response = await fetch(`/api/comps/nearby?lat=${lat}&lng=${lng}&city=${encodeURIComponent(city)}`);
+        const data = await response.json();
+
+        if (data.success && data.results.length > 0) {
+            renderComps(data.results, city);
+        } else {
+            container.innerHTML = '<div class="no-comps">No sales found in ' + city + '</div>';
+        }
+    } catch (error) {
+        container.innerHTML = '<div class="error">Error loading comps</div>';
+        console.error(error);
+    }
+}
+
+function renderComps(comps, city) {
+    const container = document.getElementById('comps-list');
+    const header = `<div class="comps-header">${comps.length} sales in ${city}</div>`;
+    const compsHtml = comps.map(comp => {
+        const addr = comp.address || {};
+        const pricePerSqft = comp.livingArea > 0 ? Math.round(comp.unformattedPrice / comp.livingArea) : 0;
+        const lotSize = comp.lotAreaUnit === 'acres'
+            ? `${comp.lotAreaValue?.toFixed(2)} ac`
+            : `${Math.round(comp.lotAreaValue || 0).toLocaleString()} sf lot`;
+
+        return `
+            <div class="comp-card">
+                <img src="${comp.imgSrc}" alt="">
+                <div class="comp-card-info">
+                    <div class="comp-card-price">$${comp.unformattedPrice?.toLocaleString()}</div>
+                    <div class="comp-card-ppsf">$${pricePerSqft}/sqft</div>
+                    <div class="comp-card-address">${addr.street || 'N/A'}</div>
+                    <div class="comp-card-city">${addr.city}, ${addr.state}</div>
+                    <div class="comp-card-details">
+                        ${comp.beds || '?'}bd ${comp.baths || '?'}ba · ${(comp.livingArea || 0).toLocaleString()}sf
+                    </div>
+                    <div class="comp-card-lot">${lotSize}</div>
+                    <div class="comp-card-distance">${comp.distance} miles away</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = header + '<div class="comps-scroll">' + compsHtml + '</div>';
+}
+
+// Resizable columns
+function initResizeHandles() {
+    const rightPanel = document.getElementById('analyze-right');
+    const resizeRight = document.getElementById('resize-right');
+
+    let isResizing = false;
+
+    function startResize(e) {
+        isResizing = true;
+        resizeRight.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    }
+
+    function stopResize() {
+        isResizing = false;
+        resizeRight.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+
+    function resize(e) {
+        if (!isResizing) return;
+        const containerRight = rightPanel.parentElement.getBoundingClientRect().right;
+        const newWidth = containerRight - e.clientX;
+        if (newWidth >= 180 && newWidth <= 500) {
+            rightPanel.style.width = newWidth + 'px';
+        }
+    }
+
+    resizeRight.addEventListener('mousedown', startResize);
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResize);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadSelected();
+    loadAnalyzePage();
+    initResizeHandles();
+});
+</script>
+{% endblock %}

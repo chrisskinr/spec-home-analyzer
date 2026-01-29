@@ -1,0 +1,29 @@
+{
+  "zillow_scraper": {
+    "name": "Real Estate 101 - Zillow Scraper",
+    "base_url": "https://real-estate101.p.rapidapi.com",
+    "endpoints": {
+      "search_by_url": "/api/search/byurl"
+    },
+    "headers": {
+      "x-rapidapi-host": "real-estate101.p.rapidapi.com",
+      "x-rapidapi-key": "299527d0efmsh972ff518e6e32e7p175d57jsn776e63c20830"
+    },
+    "notes": "Free tier limits apply. Check RapidAPI dashboard for usage."
+  },
+  "search_defaults": {
+    "oak_brook": {
+      "region_id": 17438,
+      "bounds": {
+        "north": 41.88,
+        "south": 41.78,
+        "east": -87.85,
+        "west": -88.00
+      },
+      "center": {
+        "latitude": 41.8328,
+        "longitude": -87.9289
+      }
+    }
+  }
+}
