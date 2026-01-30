@@ -125,12 +125,47 @@ class ZillowAPI:
         return self.search(max_price=max_price, sold_only=False, page=page, city=city)
 
     def get_sold_comps(self, page=1, city=None):
-        """Get sold properties (last 3 years) for comps"""
-        return self.search(sold_only=True, page=page, sold_in_last="36m", city=city)
+        """Get sold properties (last 5 years) for comps"""
+        return self.search(sold_only=True, page=page, sold_in_last="60m", city=city)
 
     def get_new_construction_comps(self, min_year=2015, page=1):
         """Get sold new construction for target build analysis"""
         return self.search(sold_only=True, min_year_built=min_year, page=page)
+
+    def get_property_details(self, zpid):
+        """Get detailed property info including schools"""
+        api_url = f"{self.base_url}/api/property?zpid={zpid}"
+        try:
+            response = requests.get(api_url, headers=self.headers)
+            return response.json()
+        except Exception as e:
+            return {'error': str(e)}
+
+    def extract_school_district(self, property_details):
+        """Extract school district from property details"""
+        schools = property_details.get('schools', [])
+
+        # Look for elementary school district (most specific)
+        for school in schools:
+            if school.get('level') == 'Elementary':
+                # District name is often in the school name or separate field
+                district = school.get('district') or school.get('name', '')
+                return {
+                    'district_name': district,
+                    'elementary': school.get('name'),
+                    'rating': school.get('rating')
+                }
+
+        # Fallback to any school's district
+        if schools:
+            first_school = schools[0]
+            return {
+                'district_name': first_school.get('district') or first_school.get('name', ''),
+                'elementary': None,
+                'rating': first_school.get('rating')
+            }
+
+        return {'district_name': 'Unknown', 'elementary': None, 'rating': None}
 
     def analyze_property(self, property_data, sold_comps, new_construction_comps):
         """

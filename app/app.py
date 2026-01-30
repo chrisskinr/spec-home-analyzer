@@ -61,19 +61,39 @@ def analyze_property():
     return jsonify(analysis)
 
 
+@app.route('/api/property/details')
+def get_property_details():
+    """API: Get detailed property info including schools"""
+    zpid = request.args.get('zpid', type=str)
+
+    if not zpid:
+        return jsonify({'error': 'zpid required'}), 400
+
+    details = api.get_property_details(zpid)
+    school_info = api.extract_school_district(details)
+
+    return jsonify({
+        'success': True,
+        'zpid': zpid,
+        'schools': details.get('schools', []),
+        'school_district': school_info
+    })
+
+
 @app.route('/api/comps/nearby')
 def get_nearby_comps():
-    """API: Get sales in the same city"""
+    """API: Get sales in the same city within radius"""
     lat = request.args.get('lat', type=float)
     lng = request.args.get('lng', type=float)
     city = request.args.get('city', type=str)
+    radius = request.args.get('radius', 1.0, type=float)  # Default 1 mile
 
     if not lat or not lng:
         return jsonify({'error': 'lat and lng required'}), 400
 
-    # Get sold properties from multiple pages, searching specifically in the city
+    # Get sold properties from ALL pages, searching specifically in the city
     all_results = []
-    for page in range(1, 6):  # Fetch 5 pages
+    for page in range(1, 40):  # Fetch up to 40 pages (~1600 results)
         sold = api.get_sold_comps(page=page, city=city)
         if sold.get('results'):
             all_results.extend(sold.get('results', []))
@@ -82,8 +102,8 @@ def get_nearby_comps():
 
     sold = {'success': True, 'results': all_results}
 
-    # Filter by city only - no other filters
-    comps = []
+    # Calculate distance for all properties
+    all_comps = []
     for prop in sold.get('results', []):
         # Filter by city
         prop_city = prop.get('address', {}).get('city', '').lower()
@@ -102,14 +122,23 @@ def get_nearby_comps():
         distance = (lat_diff**2 + lng_diff**2) ** 0.5
 
         prop['distance'] = round(distance, 2)
-        comps.append(prop)
+        all_comps.append(prop)
 
-    # Sort by price descending
-    comps.sort(key=lambda x: x.get('unformattedPrice', 0), reverse=True)
+    # Sort by distance from property
+    all_comps.sort(key=lambda x: x.get('distance', 999))
+
+    # Filter by radius
+    comps_in_radius = [c for c in all_comps if c['distance'] <= radius]
+
+    # Count how many more are in the next mile
+    next_mile_count = len([c for c in all_comps if c['distance'] <= radius + 1]) - len(comps_in_radius)
 
     return jsonify({
         'success': True,
-        'results': comps[:25]
+        'results': comps_in_radius,
+        'radius': radius,
+        'total_in_city': len(all_comps),
+        'more_in_next_mile': next_mile_count
     })
 
 

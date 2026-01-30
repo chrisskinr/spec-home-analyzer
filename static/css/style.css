@@ -600,7 +600,8 @@ body.sidebar-minimized .main-content {
 .analyze-layout {
     display: flex;
     gap: 0;
-    min-height: calc(100vh - 200px);
+    height: calc(100vh - 140px);
+    overflow: hidden;
 }
 
 .resize-handle {
@@ -621,6 +622,7 @@ body.sidebar-minimized .main-content {
     min-width: 300px;
     padding: 0 0.75rem;
     overflow-y: auto;
+    max-height: calc(100vh - 140px);
 }
 
 .analyze-right h3 {
