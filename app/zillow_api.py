@@ -117,7 +117,7 @@ class ZillowAPI:
         encoded_url = urllib.parse.quote(search_url, safe='')
         api_url = f"{self.base_url}/api/search/byurl?url={encoded_url}&page={page}"
 
-        response = requests.get(api_url, headers=self.headers)
+        response = requests.get(api_url, headers=self.headers, timeout=10)
         return response.json()
 
     def get_teardown_candidates(self, max_price=1000000, page=1, city=None):
@@ -136,7 +136,7 @@ class ZillowAPI:
         """Get detailed property info including schools"""
         api_url = f"{self.base_url}/api/property?zpid={zpid}"
         try:
-            response = requests.get(api_url, headers=self.headers)
+            response = requests.get(api_url, headers=self.headers, timeout=10)
             return response.json()
         except Exception as e:
             return {'error': str(e)}

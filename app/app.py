@@ -83,6 +83,10 @@ def get_property_details():
 @app.route('/api/comps/nearby')
 def get_nearby_comps():
     """API: Get sales in the same city within radius"""
+    import time
+    start_time = time.time()
+    max_time = 25  # Stop fetching after 25 seconds to avoid timeout
+
     lat = request.args.get('lat', type=float)
     lng = request.args.get('lng', type=float)
     city = request.args.get('city', type=str)
@@ -91,20 +95,30 @@ def get_nearby_comps():
     if not lat or not lng:
         return jsonify({'error': 'lat and lng required'}), 400
 
-    # Get sold properties from ALL pages, searching specifically in the city
+    # Get sold properties from multiple pages, with timeout protection
     all_results = []
-    for page in range(1, 40):  # Fetch up to 40 pages (~1600 results)
-        sold = api.get_sold_comps(page=page, city=city)
-        if sold.get('results'):
-            all_results.extend(sold.get('results', []))
-        if not sold.get('results') or len(sold.get('results', [])) < 40:
-            break  # No more pages
+    pages_fetched = 0
+    try:
+        for page in range(1, 40):  # Fetch up to 40 pages (~1600 results)
+            # Check if we're running out of time
+            if time.time() - start_time > max_time:
+                break
 
-    sold = {'success': True, 'results': all_results}
+            sold = api.get_sold_comps(page=page, city=city)
+            pages_fetched = page
+
+            if sold.get('results'):
+                all_results.extend(sold.get('results', []))
+            if not sold.get('results') or len(sold.get('results', [])) < 40:
+                break  # No more pages
+    except Exception as e:
+        # If we have some results, continue with what we have
+        if not all_results:
+            return jsonify({'error': f'API error: {str(e)}', 'success': False}), 500
 
     # Calculate distance for all properties
     all_comps = []
-    for prop in sold.get('results', []):
+    for prop in all_results:
         # Filter by city
         prop_city = prop.get('address', {}).get('city', '').lower()
         if city and prop_city != city.lower():
@@ -138,7 +152,8 @@ def get_nearby_comps():
         'results': comps_in_radius,
         'radius': radius,
         'total_in_city': len(all_comps),
-        'more_in_next_mile': next_mile_count
+        'more_in_next_mile': next_mile_count,
+        'pages_fetched': pages_fetched
     })
 
 
