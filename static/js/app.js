@@ -140,6 +140,27 @@ function updateSelectedUI() {
     if (analyzeBtn) {
         analyzeBtn.disabled = selectedProperties.length === 0;
     }
+
+    // Update select buttons on property cards
+    updateSelectButtons();
+}
+
+function updateSelectButtons() {
+    const selectedIds = selectedProperties.map(p => p.id);
+
+    document.querySelectorAll('.property-card').forEach(card => {
+        const cardId = card.dataset.id;
+        const btn = card.querySelector('.btn-select');
+        if (btn) {
+            if (selectedIds.includes(cardId)) {
+                btn.classList.add('selected');
+                btn.textContent = '✓ Selected';
+            } else {
+                btn.classList.remove('selected');
+                btn.textContent = '+ Select';
+            }
+        }
+    });
 }
 
 function analyzeSelected() {
